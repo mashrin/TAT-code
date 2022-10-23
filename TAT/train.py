@@ -251,7 +251,7 @@ def determine_triad_class_(set_indice, timestamp):
     return index
 
 def time_dict(set_indice, y):
-    assert np.all(set_indice == np.array([1, 2, 3, 4], dtype=np.int) )
+    assert np.all(set_indice == np.array(list(range(1, args.set_indice_length + 1)), dtype=np.int))
     times = {}
     if y == 0:
         times[(1, 2)] = 0 # time label
@@ -307,7 +307,7 @@ def determine_permute_matrix():
     #     [2, 1, 0]
     # ], dtype=np.int) 
 
-    set_indice = np.array([1, 2, 3, 4], dtype=np.int) 
+    set_indice = np.array(list(range(1, args.set_indice_length + 1)), dtype=np.int) 
     for y in range(args.out_features):
         times = time_dict(set_indice, y) 
         for i in range(args.out_features):

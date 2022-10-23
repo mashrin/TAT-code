@@ -1,4 +1,3 @@
-
 import torch
 import numpy as np
 import copy
@@ -207,9 +206,10 @@ def permute_batch(batch, permute_idx, permute_rand):
     index_bases = torch.cat([zero, torch.cumsum(num_nodes, dim=0, dtype=torch.long)[:-1] ])
     # reset x
     for i in range(num_graphs):
-        batch.x[index_bases[i] + set_indice[i][0] ][:3] = 0
-        batch.x[index_bases[i] + set_indice[i][1] ][:3] = 0
-        batch.x[index_bases[i] + set_indice[i][2] ][:3] = 0
+        for j in range(args.set_indice_length):
+            batch.x[index_bases[i] + set_indice[i][j] ][:3] = 0
+            # batch.x[index_bases[i] + set_indice[i][1] ][:3] = 0
+            # batch.x[index_bases[i] + set_indice[i][2] ][:3] = 0
     
     # permute set_indice
     permute_idx = torch.LongTensor(permute_idx).to(device)
@@ -219,19 +219,23 @@ def permute_batch(batch, permute_idx, permute_rand):
     # renew x
     new_set_indice = batch.set_indice
     for i in range(num_graphs):
-        batch.x[index_bases[i] + new_set_indice[i][0] ][0] = 1 
-        batch.x[index_bases[i] + new_set_indice[i][1] ][1] = 1 
-        batch.x[index_bases[i] + new_set_indice[i][2] ][2] = 1
+        for j in range(args.set_indice_length):
+            batch.x[index_bases[i] + new_set_indice[i][j]][j] = 1 
+        # batch.x[index_bases[i] + new_set_indice[i][1] ][1] = 1 
+        # batch.x[index_bases[i] + new_set_indice[i][2] ][2] = 1
 
     return batch
 
 def determine_triad_class_(set_indice, timestamp):
-    n1, n2, n3 = set_indice
+    n1, n2, n3, n4 = set_indice
     t_12 = timestamp[(n1, n2)]
     t_13 = timestamp[(n1, n3)]
+    t_14 = timestamp[(n1, n4)] #
     t_23 = timestamp[(n2, n3)]
+    t_24 = timestamp[(n2, n4)] #
+    t_34 = timestamp[(n3, n4)] #
 
-    times = list(sorted([t_12, t_13, t_23]))
+    times = list(sorted([t_12, t_13, t_14, t_23, t_24, t_34]))
     times = np.array(times).reshape((1, -1))
 
     permutations = np.array( [
@@ -242,11 +246,12 @@ def determine_triad_class_(set_indice, timestamp):
         [t_23, t_12, t_13],
         [t_23, t_13, t_12],
         ] )
+
     index = np.argmax(np.all(permutations == times, axis=1) )
     return index
 
 def time_dict(set_indice, y):
-    assert np.all(set_indice == np.array([1, 2, 3], dtype=np.int) )
+    assert np.all(set_indice == np.array([1, 2, 3, 4], dtype=np.int) )
     times = {}
     if y == 0:
         times[(1, 2)] = 0 # time label
@@ -287,17 +292,22 @@ def determine_permute_matrix():
                             [4., 5., 2., 0., 3., 1.],
                             [5., 4., 3., 1., 2., 0.]])
     """
-    permuted_label = np.zeros((args.out_features, args.out_features)) 
-    permute_idx = np.array([
-        [0, 1, 2],
-        [0, 2, 1],
-        [1, 0, 2],
-        [1, 2, 0],
-        [2, 0, 1],
-        [2, 1, 0]
-    ], dtype=np.int) 
+    permuted_label = np.zeros((args.out_features, args.out_features))
 
-    set_indice = np.array([1, 2, 3], dtype=np.int) 
+    from itertools import permutations
+    permute_idx = np.array(list(permutations(range(0, 4))), dtype=np.int)
+    # print(l)
+
+    # permute_idx = np.array([
+    #     [0, 1, 2],
+    #     [0, 2, 1],
+    #     [1, 0, 2],
+    #     [1, 2, 0],
+    #     [2, 0, 1],
+    #     [2, 1, 0]
+    # ], dtype=np.int) 
+
+    set_indice = np.array([1, 2, 3, 4], dtype=np.int) 
     for y in range(args.out_features):
         times = time_dict(set_indice, y) 
         for i in range(args.out_features):

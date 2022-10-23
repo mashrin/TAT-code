@@ -287,7 +287,7 @@ def determine_permute_matrix():
                             [4., 5., 2., 0., 3., 1.],
                             [5., 4., 3., 1., 2., 0.]])
     """
-    permuted_label = np.zeros((6, 6)) 
+    permuted_label = np.zeros((args.out_features, args.out_features)) 
     permute_idx = np.array([
         [0, 1, 2],
         [0, 2, 1],
@@ -298,16 +298,16 @@ def determine_permute_matrix():
     ], dtype=np.int) 
 
     set_indice = np.array([1, 2, 3], dtype=np.int) 
-    for y in range(6):
+    for y in range(args.out_features):
         times = time_dict(set_indice, y) 
-        for i in range(6):
+        for i in range(args.out_features):
             pemu_idx = permute_idx[i]
             pemu_set_indice = set_indice[pemu_idx]
             pemu_y = determine_triad_class_(pemu_set_indice, times)
             permuted_label[y][i] = pemu_y
         
     inverse_permute_matrix = np.zeros_like(permuted_label, dtype=np.int)
-    for i in range(6):
+    for i in range(args.out_features):
         inverse_permute_matrix[:, i] = np.argsort(permuted_label[:, i])
 
     return permute_idx, permuted_label, inverse_permute_matrix
@@ -322,7 +322,7 @@ def permute_optimize(model, prediction, target_model, batch, optimizer):
     # permuted batch
     permute_idx, permuted_label, inverse_permute_matrix = determine_permute_matrix()
     num_graphs = batch.num_graphs
-    pemu_rand = np.random.randint(0, 6, size=num_graphs)
+    pemu_rand = np.random.randint(0, args.out_features, size=num_graphs)
     batch_copy = copy.deepcopy(batch) 
     permuted_batch = permute_batch(batch_copy, permute_idx, pemu_rand) # permuted batch
 

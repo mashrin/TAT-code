@@ -14,6 +14,7 @@ def parse_args(argstring=None):
     parser.add_argument('--prop_depth', type=int, default=1, help='number of hops for one layer')
     parser.add_argument('--layers', type=int, default=2, help='largest number of layers')
     parser.add_argument('--max_sp', type=int, default=4, help='maximum distance to be encoded for shortest path feature (not used now)')
+    parser.add_argument('--set_indice_length', type=int, default=3, help='set size')
 
     try:
         if argstring is not None: args = parser.parse_args(argstring)

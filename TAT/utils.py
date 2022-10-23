@@ -74,10 +74,9 @@ class GraphDataset(Dataset):
         timestamps = data_obj['timestamp'] 
 
         # features
-        node_attribute_matrix = np.zeros( (sp_features.shape[0], 3) )
-        node_attribute_matrix[set_indice[0], 0] = 1
-        node_attribute_matrix[set_indice[1], 1] = 1
-        node_attribute_matrix[set_indice[2], 2] = 1
+        node_attribute_matrix = np.zeros((sp_features.shape[0], len(set_indice)))
+        for i in range(len(set_indice)):
+            node_attribute_matrix[set_indice[i], i] = 1
         if self.model not in ['DE-GNN', 'TAT']:
             sp_features = np.zeros_like(sp_features)
         else:
@@ -88,7 +87,7 @@ class GraphDataset(Dataset):
             else:
                 raise NotImplementedError
 
-        node_attribute_matrix = np.concatenate([node_attribute_matrix, sp_features], axis=1) 
+        node_attribute_matrix = np.concatenate([node_attribute_matrix, sp_features], axis=1)
         edge_index_expanded, timestamps_expanded = expand_edge_index_and_timestamps(edge_index, timestamps, set_indice)
 
         # to tensors
@@ -148,8 +147,16 @@ def collect_tri_sets(G):
 def collect_wedge_sets(G):
     """Enumerate all wedges"""
 
-    wedge_sets = set(frozenset([node1, node2, node3]) for node1 in G for node2, node3 in  combinations(G.neighbors(node1), 2) if not G.has_edge(node2, node3))
+    wedge_sets = set(frozenset([node1, node2, node3]) for node1 in G for node2, node3 in combinations(G.neighbors(node1), 2) if not G.has_edge(node2, node3))
     return [list(wedge_set) for wedge_set in wedge_sets]
+
+
+def collect_n_clique_sets(G, clique_size):
+    max_cliques = list(nx.algorithms.find_cliques(G))
+    clique_sets = set(
+        frozenset(clique_p) for clique in max_cliques for clique_p in permutations(clique) if
+        len(clique) == clique_size)
+    return [list(clique_set) for clique_set in clique_sets]
 
 
 def preprocess(edgearray):
@@ -213,23 +220,15 @@ def split_datalist(data_list, train_num):
     return train_set, val_set, test_set
 
 def determine_triad_class(G, set_indice):
-    n1, n2, n3 = set_indice
-    t_12 = min(G[n1][n2]['timestamp']) 
-    t_13 = min(G[n1][n3]['timestamp'])
-    t_23 = min(G[n2][n3]['timestamp'])
-
-    times = list(sorted([t_12, t_13, t_23]))
+    t = []
+    set_indice_length = len(set_indice)
+    for (i, j) in combinations(range(set_indice_length), 2):
+        t.append(min(G[set_indice[i]][set_indice[j]]['timestamp']))
+    times = list(sorted(t))
     times = np.array(times).reshape((1, -1))
 
-    permutations = np.array( [
-        [t_12, t_13, t_23],
-        [t_12, t_23, t_13],
-        [t_13, t_12, t_23],
-        [t_13, t_23, t_12],
-        [t_23, t_12, t_13],
-        [t_23, t_13, t_12],
-        ] )
-    index = np.argmax(np.all(permutations == times, axis=1) ) # 肯定有一个会是true
+    perm = np.array(list(permutations(t)))
+    index = np.argmax(np.all(perm == times, axis=1))
     return index
 
 
@@ -252,21 +251,44 @@ def sample_tri_wedge_neg_sets(G, data_usage=0.5):
 
     return tri_samples, wedge_samples, neg_samples
 
-def sample_neg_sets(G, n_samples):
-    """ a negative sample is a tri-set, with only one edge. """
+def sample_sets(G, set_indice_length, data_usage=0.5):
+    clique_samples = collect_n_clique_sets(G, set_indice_length) # all max cliques on the graph, list
+    clique_samples = np.array(clique_samples)
+
+    neg_samples = sample_neg_sets(G, n_samples=len(clique_samples), set_size=set_indice_length)
+
+    if data_usage < 1 - 1e-5:
+        clique_samples = retain_partial(clique_samples, ratio=data_usage)
+    print('# cliques: {}'.format(len(clique_samples)))
+
+    return clique_samples, neg_samples
+
+def sample_neg_sets(G, n_samples, set_size=3):
+    """ a negative sample is a clique-set, with only one edge. """
     neg_sets = []
     n_nodes = G.number_of_nodes()
     max_iter = 1e9
     count = 0
-    while len(neg_sets) < n_samples:
-        count += 1
-        if count >= max_iter:
-            raise Exception('Can not sample enough negative samples (tri-set with only one edge)')
-        n1 = random.randint(0, n_nodes-1)
-        n2 = random.choice(list(G.neighbors(n1)))
-        n3 = random.randint(0, n_nodes-1) 
-        if G.has_edge(n1, n3) + G.has_edge(n2, n3) == 0: 
-            neg_sets.append([n1, n2, n3])
+    if set_size == 3:
+        while len(neg_sets) < n_samples:
+            count += 1
+            if count >= max_iter:
+                raise Exception('Can not sample enough negative samples (tri-set with only one edge)')
+            n1 = random.randint(0, n_nodes-1)
+            n2 = random.choice(list(G.neighbors(n1)))
+            n3 = random.randint(0, n_nodes-1)
+            if G.has_edge(n1, n3) + G.has_edge(n2, n3) == 0:
+                neg_sets.append([n1, n2, n3])
+    else:
+        while len(neg_sets) < n_samples:
+            count += 1
+            if count >= max_iter:
+                raise Exception('Can not sample enough negative samples (tri-set with only one edge)')
+            n1 = random.randint(0, n_nodes - 1)
+            neg_set = [n1, random.choice(list(G.neighbors(n1)))]
+            for i in range(set_size - 2):
+                neg_set.append(random.choice(list(nx.classes.non_neighbors(G, n1))))
+            neg_sets.append(neg_set)
 
     return np.array(neg_sets)
 
@@ -312,15 +334,17 @@ def permute(set_indices, labels):
     labels = labels[permutation]
     return set_indices, labels
 
-def generate_set_indices(G, test_ratio=0.2):
+def generate_set_indices(G, test_ratio=0.2, set_indice_length=3):
     """Generate set indeces, which are used for training/test target sets. But no labels now.
     # only triad prediction, 6 classes.
     """
     print('Generating train/test set indices and labels from graph...')
 
-    tri_samples, wedge_samples, neg_samples = sample_tri_wedge_neg_sets(G)
-
-    set_indices = tri_samples
+    if set_indice_length == 3:
+        tri_samples, wedge_samples, neg_samples = sample_tri_wedge_neg_sets(G)
+        set_indices = tri_samples
+    else:
+        set_indices, neg_samples = sample_sets(G, set_indice_length)
 
     permutation = np.random.permutation(len(set_indices))
     set_indices = set_indices[permutation] # permute
@@ -487,7 +511,7 @@ def preprocessing_cached_data(dataset, args, force_cache=True): # TODO: move to 
         print('Cached directory {} newly created'.format(cached_dir.absolute()))
         print('generating data samples...')
 
-        G, set_indices, labels, train_num = generate_set_indices(G, args.test_ratio)
+        G, set_indices, labels, train_num = generate_set_indices(G, args.test_ratio, args.set_indice_length)
 
         data_list = extract_subgraph(G, set_indices, labels, args.prop_depth, args.layers, args.max_sp,
                                     False, cached_dir)

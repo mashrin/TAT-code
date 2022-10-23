@@ -28,7 +28,7 @@ class FeedForwardNetwork(nn.Module):
 class GNNModel(nn.Module):
     def __init__(self, layers, in_features, hidden_features, out_features, prop_depth, dropout, model_name,
                  time_encoder_type: str, time_encoder_maxt: float, time_encoder_rows: int, time_encoder_dimension: int,
-                 time_encoder_discrete: str,):
+                 time_encoder_discrete: str, set_indice_length: int):
         super(GNNModel, self).__init__()
         self.layers = layers
         self.in_features = in_features
@@ -65,7 +65,7 @@ class GNNModel(nn.Module):
                     self.layers.append(Layer(in_channels=hidden_features, out_channels=hidden_features))
 
         self.layer_norms = nn.ModuleList([nn.LayerNorm(hidden_features) for i in range(layers)])
-        self.merger = nn.Linear(3 * hidden_features, hidden_features)
+        self.merger = nn.Linear(set_indice_length * hidden_features, hidden_features)
 
         self.feed_forward = FeedForwardNetwork(hidden_features, out_features)
 
@@ -123,7 +123,7 @@ class GNNModel(nn.Module):
     def pool(self, x):
         """ readout 
         """
-        x = self.merger(x.reshape((x.shape[0], -1))) 
+        x = self.merger(x.reshape((x.shape[0], -1)))
         return x
 
 
@@ -131,7 +131,9 @@ def get_model(args, logger):
     if args.model in ['DE-GNN', 'TAGCN', 'GIN', 'GCN', 'GraphSAGE', 'GAT']:
         model = GNNModel(layers=args.layers, in_features=args.in_features, hidden_features=args.hidden_features, 
                         out_features=args.out_features, prop_depth=args.prop_depth, dropout=args.dropout, model_name=args.model,
-                        time_encoder_type=args.time_encoder_type, time_encoder_maxt=args.time_encoder_maxt, time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension, time_encoder_discrete=args.time_encoder_discrete,)
+                        time_encoder_type=args.time_encoder_type, time_encoder_maxt=args.time_encoder_maxt,
+                         time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension,
+                         time_encoder_discrete=args.time_encoder_discrete, set_indice_length=args.set_indice_length)
     elif args.model in ['TAT']:
         model = TATModel(model_name=args.model, time_encoder_type=args.time_encoder_type, time_encoder_maxt=args.time_encoder_maxt,
                          time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension, time_encoder_discrete=args.time_encoder_discrete,

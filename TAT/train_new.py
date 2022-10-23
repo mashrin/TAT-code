@@ -1,9 +1,12 @@
+import warnings
+
 import torch
 import numpy as np
 import copy
 import pandas as pd
 import os
 import scipy
+from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from tqdm import tqdm
 from collections import OrderedDict
@@ -12,6 +15,8 @@ from sklearn.metrics import roc_auc_score, f1_score
 # from xww.utils.tensorboard import TensorboardSummarizer
 from .exp_study import rank_acc
 from typing import List, Dict
+import math
+from itertools import combinations, permutations
 
 criterion = torch.nn.functional.cross_entropy
 
@@ -41,19 +46,21 @@ def train_model(model, dataloaders, args, logger):
 
     train_loader, val_loader, test_loader = dataloaders
     optimizer = get_optimizer(model, args)
-    metrics = {'loss': loss_metric, 'acc': acc_metric, 'auc': roc_auc_metric, 'macro_f1': f1_score_metric, 'ranked_acc': ranked_acc_metric}
-    
-    recorder = Recorder(minmax={'loss': 0, 'acc': 1, 'auc': 1, 'macro_f1': 1, 'ranked_acc': 1}, checkpoint_dir=args.checkpoint_dir, time_str=args.time_str)
+    metrics = {'loss': loss_metric, 'acc': acc_metric, 'auc': roc_auc_metric, 'macro_f1': f1_score_metric,
+               'ranked_acc': ranked_acc_metric, 'bleu': bleu_metric}
+
+    recorder = Recorder(minmax={'loss': 0, 'acc': 1, 'auc': 1, 'macro_f1': 1, 'ranked_acc': 1, 'bleu': 1},
+                        checkpoint_dir=args.checkpoint_dir, time_str=args.time_str)
     log_dir = Path(args.log_dir)/'tb_logs'/args.dataset/'_'.join([args.time_str, args.desc.replace(' ', '_')]) # add desc after time, as log dir name
     # summary_writer = TensorboardSummarizer(log_dir, hparams_dict=vars(args), desc=args.desc)
     summary_writer = None
     for step in range(args.epoch):
-        optimize_model(model, target_model, train_loader, optimizer, logger, summary_writer, step, perm_loss=args.perm_loss)
+        optimize_model(model, target_model, train_loader, optimizer, logger, summary_writer, step,
+                       perm_loss=args.perm_loss, set_indice_length=args.set_indice_length)
 
         train_metrics_results = eval_model(model, train_loader, metrics, desc='train_eval', start_step=step*len(train_loader))
         val_metrics_results = eval_model(model, val_loader, metrics, desc='val_eval', start_step=step*len(val_loader))
         test_metrics_results = eval_model(model, test_loader, metrics, desc='test_eval', start_step=step*len(test_loader))
-
        
         recorder.append_full_metrics(train_metrics_results, 'train')
         recorder.append_full_metrics(val_metrics_results, 'val')
@@ -64,11 +71,15 @@ def train_model(model, dataloaders, args, logger):
         train_latest_metric = recorder.get_latest_metric('train')
         val_latest_metric = recorder.get_latest_metric('val')
         test_latest_metric = recorder.get_latest_metric('test')
-        
-        logger.info('epoch {}, best test acc/r_acc: {:.4f}/{:.4f}, train loss/acc/r_acc: {:.4f}/{:.4f}/{:.4f}, val acc/r_acc: {:.4f}/{:.4f}, test acc/r_acc: {:.4f}/{:.4f}'.format(
-                    step, test_best_metric['acc'], test_best_metric['ranked_acc'], train_latest_metric['loss'], train_latest_metric['acc'], train_latest_metric['ranked_acc'],
-                    val_latest_metric['acc'], val_latest_metric['ranked_acc'], test_latest_metric['acc'], test_latest_metric['ranked_acc'] ))
-        
+
+        logger.info(
+            'epoch {}, best test acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}, train loss/acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}, val acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}, test acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}'.format(
+                step, test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['bleu'],
+                train_latest_metric['loss'], train_latest_metric['acc'], train_latest_metric['ranked_acc'],
+                train_latest_metric['bleu'],
+                val_latest_metric['acc'], val_latest_metric['ranked_acc'], val_latest_metric['bleu'],
+                test_latest_metric['acc'], test_latest_metric['ranked_acc'], test_latest_metric['bleu']))
+
         recorder.save()
         recorder.save_model()
 
@@ -77,13 +88,22 @@ def train_model(model, dataloaders, args, logger):
     train_best_metric, train_best_epoch = recorder.get_best_metric('train')
     val_best_metric, val_best_epoch = recorder.get_best_metric('val')
     test_best_metric, test_best_epoch = recorder.get_best_metric('test')
-    logger.info('best train acc/r_acc/auc/f1: {:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}'.format( train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'], train_best_metric['macro_f1'],
-                                                                                                       train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'], train_best_epoch['macro_f1']))
-    logger.info('best val acc/r_acc/auc/f1: {:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}'.format( val_best_metric['acc'], val_best_metric['ranked_acc'], val_best_metric['auc'], val_best_metric['macro_f1'],
-                                                                                                       val_best_epoch['acc'], val_best_epoch['ranked_acc'], val_best_epoch['auc'], val_best_epoch['macro_f1']))
-    logger.info('best test acc/r_acc/auc/f1: {:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}'.format( test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['auc'], test_best_metric['macro_f1'],
-                                                                                                       test_best_epoch['acc'], test_best_epoch['ranked_acc'], test_best_epoch['auc'], test_best_epoch['macro_f1']))
-    
+    logger.info('best train acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
+        train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'],
+        train_best_metric['macro_f1'], train_best_metric['bleu'],
+        train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'], train_best_epoch['macro_f1'],
+        train_best_epoch['bleu']))
+    logger.info('best val acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
+        val_best_metric['acc'], val_best_metric['ranked_acc'], val_best_metric['auc'], val_best_metric['macro_f1'],
+        val_best_metric['bleu'],
+        val_best_epoch['acc'], val_best_epoch['ranked_acc'], val_best_epoch['auc'], val_best_epoch['macro_f1'],
+        val_best_epoch['bleu']))
+    logger.info('best test acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
+        test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['auc'], test_best_metric['macro_f1'],
+        test_best_metric['bleu'],
+        test_best_epoch['acc'], test_best_epoch['ranked_acc'], test_best_epoch['auc'], test_best_epoch['macro_f1'],
+        test_best_epoch['bleu']))
+
     recorder.save()
     recorder.save_model()
     logger.info(f'record saved at {recorder.checkpoint_dir/recorder.time_str}')
@@ -189,6 +209,34 @@ def loss_metric(predictions, labels):
     with torch.no_grad():
         loss = torch.nn.functional.cross_entropy(predictions, labels, reduction='mean').item()
     return loss
+
+
+def label_to_order(label, l):
+    for i, p in enumerate(permutations(range(l))):
+        if i == label:
+            return p
+
+def fact_to_num(n):
+    return {6: 3, 720: 6}[n]
+
+
+def bleu_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        bleu = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            bleu += sentence_bleu(reference, candidate, weights=(1, 1, 1, 0))
+        bleu /= len(labels)
+        return bleu
+
     
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}
@@ -201,88 +249,62 @@ def permute_batch(batch, permute_idx, permute_rand):
     device = batch.set_indice.device
     # index bases
     set_indice, batch_idx, num_graphs = batch.set_indice, batch.batch, batch.num_graphs
+    set_indice_length = set_indice.shape[1]
     num_nodes = torch.eye(num_graphs)[batch_idx].to(device).sum(dim=0)
     zero = torch.tensor([0], dtype=torch.long).to(device)
     index_bases = torch.cat([zero, torch.cumsum(num_nodes, dim=0, dtype=torch.long)[:-1] ])
     # reset x
     for i in range(num_graphs):
-        for j in range(args.set_indice_length):
-            batch.x[index_bases[i] + set_indice[i][j] ][:3] = 0
-            # batch.x[index_bases[i] + set_indice[i][1] ][:3] = 0
-            # batch.x[index_bases[i] + set_indice[i][2] ][:3] = 0
+        for j in range(set_indice_length):
+            batch.x[index_bases[i] + set_indice[i][j]][:set_indice_length] = 0
     
     # permute set_indice
     permute_idx = torch.LongTensor(permute_idx).to(device)
     for i in range(num_graphs):
-        batch.set_indice[i] = batch.set_indice[i][ permute_idx[permute_rand[i]] ]
+        batch.set_indice[i] = batch.set_indice[i][ permute_idx[permute_rand[i]]]
     
     # renew x
     new_set_indice = batch.set_indice
     for i in range(num_graphs):
-        for j in range(args.set_indice_length):
-            batch.x[index_bases[i] + new_set_indice[i][j]][j] = 1 
-        # batch.x[index_bases[i] + new_set_indice[i][1] ][1] = 1 
-        # batch.x[index_bases[i] + new_set_indice[i][2] ][2] = 1
+        for j in range(set_indice_length):
+            batch.x[index_bases[i] + new_set_indice[i][j]][j] = 1
 
     return batch
 
 def determine_triad_class_(set_indice, timestamp):
-    n1, n2, n3, n4 = set_indice
-    t_12 = timestamp[(n1, n2)]
-    t_13 = timestamp[(n1, n3)]
-    t_14 = timestamp[(n1, n4)] #
-    t_23 = timestamp[(n2, n3)]
-    t_24 = timestamp[(n2, n4)] #
-    t_34 = timestamp[(n3, n4)] #
-
-    times = list(sorted([t_12, t_13, t_14, t_23, t_24, t_34]))
+    t = []
+    set_indice_length = len(set_indice)
+    for (i, j) in combinations(range(set_indice_length), 2):
+        t.append(timestamp[(set_indice[i], set_indice[j])])
+    times = list(sorted(t))
     times = np.array(times).reshape((1, -1))
 
-    permutations = np.array( [
-        [t_12, t_13, t_23],
-        [t_12, t_23, t_13],
-        [t_13, t_12, t_23],
-        [t_13, t_23, t_12],
-        [t_23, t_12, t_13],
-        [t_23, t_13, t_12],
-        ] )
-
-    index = np.argmax(np.all(permutations == times, axis=1) )
+    perm = np.array(list(permutations(t)))
+    index = np.argmax(np.all(perm == times, axis=1))
     return index
 
 def time_dict(set_indice, y):
-    assert np.all(set_indice == np.array(list(range(1, args.set_indice_length + 1)), dtype=np.int))
+    set_indice_length = len(set_indice)
+    assert np.all(set_indice == np.array(list(range(1, set_indice_length + 1)), dtype=np.int))
     times = {}
-    if y == 0:
-        times[(1, 2)] = 0 # time label
-        times[(1, 3)] = 1
-        times[(2, 3)] = 2
-    elif y == 1:
-        times[(1, 2)] = 0
-        times[(2, 3)] = 1
-        times[(1, 3)] = 2
-    elif y == 2:
-        times[(1, 3)] = 0
-        times[(1, 2)] = 1
-        times[(2, 3)] = 2
-    elif y == 3:
-        times[(1, 3)] = 0
-        times[(2, 3)] = 1
-        times[(1, 2)] = 2
-    elif y == 4:
-        times[(2, 3)] = 0
-        times[(1, 2)] = 1
-        times[(1, 3)] = 2
-    elif y == 5:
-        times[(2, 3)] = 0
-        times[(1, 3)] = 1
-        times[(1, 2)] = 2
+
+    pairs = []
+    for (i, j) in combinations(set_indice, 2):
+        pairs.append((i, j))
+    length = int(set_indice_length * (set_indice_length - 1) / 2)
+    perm = permutations(range(length))
+
+    for i, p in enumerate(perm):
+        if y == i:
+            for j in range(length):
+                times[pairs[p[j]]] = j
+            break
 
     for k in list(times.keys()):
         times[(k[1], k[0])] = times[k]
     return times
 
-def determine_permute_matrix():
+def determine_permute_matrix(set_indice_length):
     """
     permuted_label: 
                     array([ [0., 2., 1., 3., 4., 5.],
@@ -292,47 +314,38 @@ def determine_permute_matrix():
                             [4., 5., 2., 0., 3., 1.],
                             [5., 4., 3., 1., 2., 0.]])
     """
-    permuted_label = np.zeros((args.out_features, args.out_features))
+    length = int(set_indice_length * (set_indice_length - 1) / 2)
+    num_classes = math.factorial(length)
+    permuted_label = np.zeros((num_classes, math.factorial(set_indice_length)))
 
-    from itertools import permutations
-    permute_idx = np.array(list(permutations(range(0, 4))), dtype=np.int)
-    # print(l)
+    permute_idx = np.array(list(permutations(range(0, set_indice_length))), dtype=np.int)
+    set_indice = np.array(list(range(1, set_indice_length + 1)), dtype=np.int)
 
-    # permute_idx = np.array([
-    #     [0, 1, 2],
-    #     [0, 2, 1],
-    #     [1, 0, 2],
-    #     [1, 2, 0],
-    #     [2, 0, 1],
-    #     [2, 1, 0]
-    # ], dtype=np.int) 
-
-    set_indice = np.array(list(range(1, args.set_indice_length + 1)), dtype=np.int) 
-    for y in range(args.out_features):
-        times = time_dict(set_indice, y) 
-        for i in range(args.out_features):
+    for y in range(num_classes):
+        times = time_dict(set_indice, y)
+        for i in range(math.factorial(set_indice_length)):
             pemu_idx = permute_idx[i]
             pemu_set_indice = set_indice[pemu_idx]
             pemu_y = determine_triad_class_(pemu_set_indice, times)
             permuted_label[y][i] = pemu_y
         
     inverse_permute_matrix = np.zeros_like(permuted_label, dtype=np.int)
-    for i in range(args.out_features):
+    for i in range(length):
         inverse_permute_matrix[:, i] = np.argsort(permuted_label[:, i])
 
     return permute_idx, permuted_label, inverse_permute_matrix
     
 
-def permute_optimize(model, prediction, target_model, batch, optimizer):
+def permute_optimize(model, prediction, target_model, batch, optimizer, set_indice_length):
     """ for permutation loss training。针对一个batch。
     """
     device = model_device(model)
     mse = torch.nn.MSELoss()
 
     # permuted batch
-    permute_idx, permuted_label, inverse_permute_matrix = determine_permute_matrix()
+    permute_idx, permuted_label, inverse_permute_matrix = determine_permute_matrix(set_indice_length)
     num_graphs = batch.num_graphs
-    pemu_rand = np.random.randint(0, args.out_features, size=num_graphs)
+    pemu_rand = np.random.randint(0, int(math.factorial(set_indice_length)), size=num_graphs)
     batch_copy = copy.deepcopy(batch) 
     permuted_batch = permute_batch(batch_copy, permute_idx, pemu_rand) # permuted batch
 
@@ -340,7 +353,7 @@ def permute_optimize(model, prediction, target_model, batch, optimizer):
     target_model = target_model.to(device)
     with torch.no_grad():
         permuted_prediction = target_model(permuted_batch)
-    
+
     inverse_permute_matrix = torch.LongTensor(inverse_permute_matrix).to(device)
     pemu_rand = torch.LongTensor(pemu_rand).to(device)
     for i in range(num_graphs): # align
@@ -363,7 +376,7 @@ def optimize_model(model, target_model, dataloader, optimizer, logger, summary_w
     for i, batch in tqdm(enumerate(dataloader), total=len(dataloader), desc='train'):
         try:
             batch = batch.to(device)
-            batch_copy = copy.deepcopy(batch) # 
+            batch_copy = copy.deepcopy(batch)
             model = model.to(device)
             label = batch.y
             prediction = model(batch)
@@ -371,7 +384,8 @@ def optimize_model(model, target_model, dataloader, optimizer, logger, summary_w
             if epoch >= 10:
                 weight = kwargs['perm_loss']
                 ce_loss = criterion(prediction, label, reduction='mean')
-                p_loss = permute_optimize(model, prediction, target_model, batch_copy, optimizer)
+                p_loss = permute_optimize(model, prediction, target_model, batch_copy, optimizer,
+                                          kwargs["set_indice_length"])
                 loss = ce_loss + p_loss * weight
             else:
                 loss = criterion(prediction, label, reduction='mean')

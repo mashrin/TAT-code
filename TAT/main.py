@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore", message=r"Passing", category=FutureWarning)
 from . import log
 from . import utils
 from .model import get_model
-from .train import train_model
+from .train_new import train_model
 
 import torch
 torch.autograd.set_detect_anomaly(True)

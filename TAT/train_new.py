@@ -93,7 +93,7 @@ def train_model(model, dataloaders, args, logger):
     val_best_metric, val_best_epoch = recorder.get_best_metric('val')
     test_best_metric, test_best_epoch = recorder.get_best_metric('test')
     logger.info(
-        'best train acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
+        'best train acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
             train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'],
             train_best_metric['macro_f1'], train_best_metric['bleu'], train_best_metric['kendall_tau'],
             train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'],
@@ -236,7 +236,6 @@ def label_to_order(label, l):
 
 def fact_to_num(n):
     return {6: 3, 720: 6}[n]
-
 
 def bleu_metric(predictions, labels):
     with warnings.catch_warnings():

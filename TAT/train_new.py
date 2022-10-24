@@ -6,6 +6,7 @@ import copy
 import pandas as pd
 import os
 import scipy
+import scipy.stats
 from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from tqdm import tqdm
@@ -47,9 +48,9 @@ def train_model(model, dataloaders, args, logger):
     train_loader, val_loader, test_loader = dataloaders
     optimizer = get_optimizer(model, args)
     metrics = {'loss': loss_metric, 'acc': acc_metric, 'auc': roc_auc_metric, 'macro_f1': f1_score_metric,
-               'ranked_acc': ranked_acc_metric, 'bleu': bleu_metric}
+               'ranked_acc': ranked_acc_metric, 'bleu': bleu_metric, 'kendall_tau': kendall_tau_metric}
 
-    recorder = Recorder(minmax={'loss': 0, 'acc': 1, 'auc': 1, 'macro_f1': 1, 'ranked_acc': 1, 'bleu': 1},
+    recorder = Recorder(minmax={'loss': 0, 'acc': 1, 'auc': 1, 'macro_f1': 1, 'ranked_acc': 1, 'bleu': 1, 'kendall_tau': 1},
                         checkpoint_dir=args.checkpoint_dir, time_str=args.time_str)
     log_dir = Path(args.log_dir)/'tb_logs'/args.dataset/'_'.join([args.time_str, args.desc.replace(' ', '_')]) # add desc after time, as log dir name
     # summary_writer = TensorboardSummarizer(log_dir, hparams_dict=vars(args), desc=args.desc)
@@ -73,12 +74,15 @@ def train_model(model, dataloaders, args, logger):
         test_latest_metric = recorder.get_latest_metric('test')
 
         logger.info(
-            'epoch {}, best test acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}, train loss/acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}, val acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}, test acc/r_acc/bleu: {:.4f}/{:.4f}/{:.4f}'.format(
+            'epoch {}, best test acc/r_acc/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}, train loss/acc/r_acc/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, val acc/r_acc/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}, test acc/r_acc/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}'.format(
                 step, test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['bleu'],
+                test_best_metric['kendall_tau'][0],
                 train_latest_metric['loss'], train_latest_metric['acc'], train_latest_metric['ranked_acc'],
-                train_latest_metric['bleu'],
+                train_latest_metric['bleu'], train_latest_metric['kendall_tau'][0],
                 val_latest_metric['acc'], val_latest_metric['ranked_acc'], val_latest_metric['bleu'],
-                test_latest_metric['acc'], test_latest_metric['ranked_acc'], test_latest_metric['bleu']))
+                val_latest_metric['kendall_tau'][0],
+                test_latest_metric['acc'], test_latest_metric['ranked_acc'], test_latest_metric['bleu'],
+                test_latest_metric['kendall_tau'][0]))
 
         recorder.save()
         recorder.save_model()
@@ -88,21 +92,26 @@ def train_model(model, dataloaders, args, logger):
     train_best_metric, train_best_epoch = recorder.get_best_metric('train')
     val_best_metric, val_best_epoch = recorder.get_best_metric('val')
     test_best_metric, test_best_epoch = recorder.get_best_metric('test')
-    logger.info('best train acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
-        train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'],
-        train_best_metric['macro_f1'], train_best_metric['bleu'],
-        train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'], train_best_epoch['macro_f1'],
-        train_best_epoch['bleu']))
-    logger.info('best val acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
-        val_best_metric['acc'], val_best_metric['ranked_acc'], val_best_metric['auc'], val_best_metric['macro_f1'],
-        val_best_metric['bleu'],
-        val_best_epoch['acc'], val_best_epoch['ranked_acc'], val_best_epoch['auc'], val_best_epoch['macro_f1'],
-        val_best_epoch['bleu']))
-    logger.info('best test acc/r_acc/auc/f1/bleu: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}'.format(
-        test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['auc'], test_best_metric['macro_f1'],
-        test_best_metric['bleu'],
-        test_best_epoch['acc'], test_best_epoch['ranked_acc'], test_best_epoch['auc'], test_best_epoch['macro_f1'],
-        test_best_epoch['bleu']))
+    logger.info(
+        'best train acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
+            train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'],
+            train_best_metric['macro_f1'], train_best_metric['bleu'], train_best_metric['kendall_tau'],
+            train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'],
+            train_best_epoch['macro_f1'],
+            train_best_epoch['bleu'], train_best_epoch['kendall_tau']))
+    logger.info(
+        'best val acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
+            val_best_metric['acc'], val_best_metric['ranked_acc'], val_best_metric['auc'], val_best_metric['macro_f1'],
+            val_best_metric['bleu'], val_best_metric['kendall_tau'],
+            val_best_epoch['acc'], val_best_epoch['ranked_acc'], val_best_epoch['auc'], val_best_epoch['macro_f1'],
+            val_best_epoch['bleu'], val_best_epoch['kendall_tau']))
+    logger.info(
+        'best test acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
+            test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['auc'],
+            test_best_metric['macro_f1'],
+            test_best_metric['bleu'], test_best_metric['kendall_tau'],
+            test_best_epoch['acc'], test_best_epoch['ranked_acc'], test_best_epoch['auc'], test_best_epoch['macro_f1'],
+            test_best_epoch['bleu'], test_best_epoch['kendall_tau'], ))
 
     recorder.save()
     recorder.save_model()
@@ -197,6 +206,15 @@ def ranked_acc_metric(predictions, labels, rank=2):
     correct_predictions = np.max(class_rank[:, :rank] == labels, axis=1).flatten()
     acc = correct_predictions.sum()/labels.shape[0]
     return acc
+
+def kendall_tau_metric(predictions, labels):
+    if isinstance(predictions, Tensor):
+        predictions = predictions.cpu().numpy()
+    if isinstance(labels, Tensor):
+        labels = labels.cpu().numpy()
+    predictions = np.argmax(predictions, axis=1)
+    tau = scipy.stats.kendalltau(predictions, labels)
+    return tau
 
 def loss_metric(predictions, labels):
     """ cross entropy loss """

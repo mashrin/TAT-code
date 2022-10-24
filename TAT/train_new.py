@@ -95,21 +95,21 @@ def train_model(model, dataloaders, args, logger):
     logger.info(
         'best train acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
             train_best_metric['acc'], train_best_metric['ranked_acc'], train_best_metric['auc'],
-            train_best_metric['macro_f1'], train_best_metric['bleu'], train_best_metric['kendall_tau'],
+            train_best_metric['macro_f1'], train_best_metric['bleu'], train_best_metric['kendall_tau'][0],
             train_best_epoch['acc'], train_best_epoch['ranked_acc'], train_best_epoch['auc'],
             train_best_epoch['macro_f1'],
             train_best_epoch['bleu'], train_best_epoch['kendall_tau']))
     logger.info(
         'best val acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
             val_best_metric['acc'], val_best_metric['ranked_acc'], val_best_metric['auc'], val_best_metric['macro_f1'],
-            val_best_metric['bleu'], val_best_metric['kendall_tau'],
+            val_best_metric['bleu'], val_best_metric['kendall_tau'][0],
             val_best_epoch['acc'], val_best_epoch['ranked_acc'], val_best_epoch['auc'], val_best_epoch['macro_f1'],
             val_best_epoch['bleu'], val_best_epoch['kendall_tau']))
     logger.info(
         'best test acc/r_acc/auc/f1/bleu/tau: {:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}/{:.4f}, epoch: {}/{}/{}/{}/{}/{}'.format(
             test_best_metric['acc'], test_best_metric['ranked_acc'], test_best_metric['auc'],
             test_best_metric['macro_f1'],
-            test_best_metric['bleu'], test_best_metric['kendall_tau'],
+            test_best_metric['bleu'], test_best_metric['kendall_tau'][0],
             test_best_epoch['acc'], test_best_epoch['ranked_acc'], test_best_epoch['auc'], test_best_epoch['macro_f1'],
             test_best_epoch['bleu'], test_best_epoch['kendall_tau'], ))
 

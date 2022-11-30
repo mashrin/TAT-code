@@ -61,7 +61,8 @@ def train_model(model, dataloaders, args, logger):
 
         train_metrics_results = eval_model(model, train_loader, metrics, desc='train_eval', start_step=step*len(train_loader))
         val_metrics_results = eval_model(model, val_loader, metrics, desc='val_eval', start_step=step*len(val_loader))
-        test_metrics_results = eval_model(model, test_loader, metrics, desc='test_eval', start_step=step*len(test_loader))
+        test_metrics_results = eval_model(model, test_loader, metrics, desc='test_eval',
+                                          start_step=step*len(test_loader), recorder=recorder, step=step)
        
         recorder.append_full_metrics(train_metrics_results, 'train')
         recorder.append_full_metrics(val_metrics_results, 'val')
@@ -138,12 +139,15 @@ def model_device(model):
 
 
 def eval_model(model, dataloader, metrics, **kwargs):
-
     device = model_device(model)
     model.eval()
     predictions = []
     labels = []
     desc = kwargs.get('desc', 'desc')
+    recorder = kwargs.get('recorder', None)
+    epoch = str(kwargs.get('step', ''))
+    if recorder is not None:
+        path = recorder.checkpoint_dir / recorder.time_str
 
     with torch.no_grad():
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader), desc=desc):
@@ -154,9 +158,12 @@ def eval_model(model, dataloader, metrics, **kwargs):
                 labels.append(batch.y)
             except RuntimeError:
                 continue
-            
+
     predictions = torch.cat(predictions, dim=0)
     labels = torch.cat(labels, dim=0)
+    if recorder is not None:
+        torch.save(predictions, path / f'predictions_{epoch}.pt')
+        torch.save(labels, path / f'labels_{epoch}.pt')
     metrics_results = compute_metric(predictions, labels, metrics)
     return metrics_results
 

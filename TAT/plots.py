@@ -16,16 +16,42 @@ def make_plots():
     for dataset in datasets:
         for metric in metrics:
             for i, model in enumerate(models):
-                res = pd.read_csv(f"./TAT/Results/{dataset}/{model}.csv")
-                plt.plot(res[metric[1]], label=model_names[i])
+                res = pd.read_csv(f"./TAT/checkpoint/{dataset}/{model}/record.csv")
+                plt.plot(res[metric[1]][:30], label=model_names[i])
 
-            plt.xlabel("Epoch")
-            plt.ylabel(metric[0])
-            plt.legend()
+            plt.xlabel("Epoch", fontsize=15)
+            plt.ylabel(metric[0], fontsize=15)
+            if dataset == "CollegeMsg" and metric[1] == "val_auc":
+                plt.legend()
             filename = f"./TAT/figures/{dataset}_{metric[1]}.png"
             out_files.append(filename)
             plt.savefig(filename)
             plt.clf()
+
+    return out_files
+
+
+def make_plots_n_4():
+    models = ["gcn", "gat", "graphsage", "tagcn", "de-gnn", "tat"]
+    model_names = ["GCN", "GAT", "GraphSage", "TAGCN", "DE-GNN", "TAT"]
+
+    metrics = [("Train loss", "train_loss"), ("Validation accuracy", "val_acc"), ("Validation AUC", "val_auc")]
+
+    out_files = []
+
+    for metric in metrics:
+        for i, model in enumerate(models):
+            res = pd.read_csv(f"./TAT/checkpoint/SMS-A-4/{model}/record.csv")
+            plt.plot(res[metric[1]][:30], label=model_names[i])
+
+        plt.xlabel("Epoch", fontsize=15)
+        plt.ylabel(metric[0], fontsize=15)
+        if metric[1] == "val_auc":
+            plt.legend()
+        filename = f"./TAT/figures/SMS-A-4_{metric[1]}.png"
+        out_files.append(filename)
+        plt.savefig(filename)
+        plt.clf()
 
     return out_files
 
@@ -54,4 +80,6 @@ def merge_images(filenames, n_rows, n_cols, output_path):
 
 if __name__ == "__main__":
     filenames = make_plots()
-    merge_images(filenames, 2, 3, "./TAT/figures/plots.png")
+    merge_images(filenames, 2, 3, "./TAT/figures/results_n_3.png")
+    filenames = make_plots_n_4()
+    merge_images(filenames, 1, 3, "./TAT/figures/results_n_4.png")

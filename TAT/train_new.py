@@ -223,6 +223,24 @@ def kendall_tau_metric(predictions, labels):
     tau = scipy.stats.kendalltau(predictions, labels)
     return tau
 
+def pearson_metric(predictions, labels):
+    if isinstance(predictions, Tensor):
+        predictions = predictions.cpu().numpy()
+    if isinstance(labels, Tensor):
+        labels = labels.cpu().numpy()
+    predictions = np.argmax(predictions, axis=1)
+    pearson = scipy.stats.pearsonr(predictions, labels)
+    return pearson
+
+def spearman_metric(predictions, labels):
+    if isinstance(predictions, Tensor):
+        predictions = predictions.cpu().numpy()
+    if isinstance(labels, Tensor):
+        labels = labels.cpu().numpy()
+    predictions = np.argmax(predictions, axis=1)
+    spearman = scipy.stats.spearmanr(predictions, labels)
+    return spearman
+
 def loss_metric(predictions, labels):
     """ cross entropy loss """
     if not isinstance(predictions, Tensor):

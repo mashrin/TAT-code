@@ -8,6 +8,7 @@ import os
 import scipy
 import scipy.stats
 from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.meteor_score import meteor_score
 from torch import Tensor
 from tqdm import tqdm
 from collections import OrderedDict
@@ -18,6 +19,7 @@ from .exp_study import rank_acc
 from typing import List, Dict
 import math
 from itertools import combinations, permutations
+from rouge_score import rouge_scorer
 
 criterion = torch.nn.functional.cross_entropy
 
@@ -328,7 +330,42 @@ def wer_score_metric(prediction, labels):
             wer += wer_score(candidate, reference)
         wer /= len(labels)
         return wer
-    
+
+def meteor_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        meteor = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            meteor += meteor_score([reference], candidate)
+        meteor /= len(labels)
+        return meteor
+
+# def rouge_metric(predictions, labels):
+#     with warnings.catch_warnings():
+#         warnings.simplefilter("ignore")
+#         if isinstance(predictions, Tensor):
+#             predictions = predictions.cpu().numpy()
+#         if isinstance(labels, Tensor):
+#             labels = labels.cpu().tolist()
+#         l = fact_to_num(predictions.shape[1])
+#         predictions = np.argmax(predictions, axis=1).tolist()
+#         scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rouge3', 'rougeL'], use_stemmer=True)
+#         # scores = scorer.score
+#         for i in range(len(labels)):
+#             reference = [label_to_order(labels[i], l)]
+#             candidate = label_to_order(predictions[i], l)
+#             rouge += meteor_score([reference], candidate)
+#         rouge /= len(labels)
+#         return rouge
+
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}
     for key, f in metrics.items():

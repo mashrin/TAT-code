@@ -279,6 +279,55 @@ def bleu_metric(predictions, labels):
         bleu /= len(labels)
         return bleu
 
+def gleu_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        gleu = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            gleu += sentence_gleu(reference, candidate, weights=(1, 1, 1, 0))
+        gleu /= len(labels)
+        return gleu
+
+def wer_score(hyp, ref):
+    N = len(hyp)
+    M = len(ref)
+    L = np.zeros((N,M))
+    for i in range(0, N):
+        for j in range(0, M):
+        if min(i,j) == 0:
+            L[i,j] = max(i,j)
+        else:
+            deletion = L[i-1,j] + 1
+            insertion = L[i,j-1] + 1
+            sub = 1 if hyp[i] != ref[j] else 0
+            substitution = L[i-1,j-1] + sub
+            L[i,j] = min(deletion, min(insertion, substitution))
+    return int(L[N-1, M-1])
+
+def wer_score_metric(prediction, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        gleu = 0
+        for i in range(len(labels)):
+            reference = label_to_order(labels[i], l)
+            candidate = label_to_order(predictions[i], l)
+            wer += wer_score(candidate, reference)
+        wer /= len(labels)
+        return wer
     
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}

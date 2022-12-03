@@ -20,6 +20,7 @@ from typing import List, Dict
 import math
 from itertools import combinations, permutations
 from rouge_score import rouge_scorer
+from nltk.translate.chrf_score import sentence_chrf
 
 criterion = torch.nn.functional.cross_entropy
 
@@ -344,7 +345,7 @@ def meteor_metric(predictions, labels):
         for i in range(len(labels)):
             reference = [label_to_order(labels[i], l)]
             candidate = label_to_order(predictions[i], l)
-            meteor += meteor_score([reference], candidate)
+            meteor += meteor_score(reference, candidate)
         meteor /= len(labels)
         return meteor
 
@@ -365,6 +366,23 @@ def meteor_metric(predictions, labels):
 #             rouge += meteor_score([reference], candidate)
 #         rouge /= len(labels)
 #         return rouge
+
+def chrf_score(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        chrf = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            chrf += sentence_chrf(reference, candidate)
+        chrf /= len(labels)
+        return chrf
 
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}

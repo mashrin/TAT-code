@@ -350,23 +350,41 @@ def meteor_metric(predictions, labels):
         meteor /= len(labels)
         return meteor
 
-# def rouge_metric(predictions, labels):
-#     with warnings.catch_warnings():
-#         warnings.simplefilter("ignore")
-#         if isinstance(predictions, Tensor):
-#             predictions = predictions.cpu().numpy()
-#         if isinstance(labels, Tensor):
-#             labels = labels.cpu().tolist()
-#         l = fact_to_num(predictions.shape[1])
-#         predictions = np.argmax(predictions, axis=1).tolist()
-#         scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rouge3', 'rougeL'], use_stemmer=True)
-#         # scores = scorer.score
-#         for i in range(len(labels)):
-#             reference = [label_to_order(labels[i], l)]
-#             candidate = label_to_order(predictions[i], l)
-#             rouge += meteor_score([reference], candidate)
-#         rouge /= len(labels)
-#         return rouge
+def rouge_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        for i in range(len(labels)):
+            reference = label_to_order(labels[i], l)
+            candidate = label_to_order(predictions[i], l)
+            scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
+            rouge_dict = scorer.score(ref1, hyp1)
+            rouge1_precision += rouge_dict['rouge1'][0]
+            rouge1_recall += rouge_dict['rouge1'][1]
+            reuge1_fmeasure += rouge_dict['rouge1'][2]
+            rouge2_precision += rouge_dict['rouge2'][0]
+            rouge2_recall += rouge_dict['rouge2'][1]
+            reuge2_fmeasure += rouge_dict['rouge2'][2]
+            rougeL_precision += rouge_dict['rougeL'][0]
+            rougeL_recall += rouge_dict['rougeL'][1]
+            reugeL_fmeasure += rouge_dict['rougeL'][2]
+        rouge1_precision /= len(labels)
+        rouge1_recall /= len(labels)
+        rouge1_fmeasure /= len(labels)
+        rouge2_precision /= len(labels)
+        rouge2_recall /= len(labels)
+        rouge2_fmeasure /= len(labels)
+        rougeL_precision /= len(labels)
+        rougeL_recall /= len(labels)
+        rougeL_fmeasure /= len(labels)
+        return rouge1_precision, rouge1_recall, rouge1_fmeasure, rouge2_precision, rouge2_recall, rouge2_fmeasure, \
+        rougeL_precision, rougeL_recall, rougeL_fmeasure
 
 def chrf_score(predictions, labels):
     with warnings.catch_warnings():

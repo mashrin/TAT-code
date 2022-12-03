@@ -21,6 +21,7 @@ import math
 from itertools import combinations, permutations
 from rouge_score import rouge_scorer
 from nltk.translate.chrf_score import sentence_chrf
+from nltk.translate.ribes_score import sentence_ribes
 
 criterion = torch.nn.functional.cross_entropy
 
@@ -383,6 +384,23 @@ def chrf_score(predictions, labels):
             chrf += sentence_chrf(reference, candidate)
         chrf /= len(labels)
         return chrf
+
+def ribes_score(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        ribes = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            ribes += sentence_ribes(reference, candidate)
+        ribes /= len(labels)
+        return ribes
 
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}

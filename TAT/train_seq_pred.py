@@ -51,8 +51,9 @@ def train_model(model, dataloaders, args, logger):
 
     train_loader, val_loader, test_loader = dataloaders
     optimizer = get_optimizer(model, args)
-    metrics = { # 'loss': loss_metric,
-               # 'acc': acc_metric, 'auc': roc_auc_metric, 'macro_f1': f1_score_metric, 'ranked_acc': ranked_acc_metric,
+    metrics = {'loss': loss_metric,
+               'acc': acc_metric,
+               # 'auc': roc_auc_metric, 'macro_f1': f1_score_metric, 'ranked_acc': ranked_acc_metric,
                'bleu': bleu_metric,
                'kendall_tau': kendall_tau_metric}
 
@@ -83,6 +84,7 @@ def train_model(model, dataloaders, args, logger):
         val_latest_metric = recorder.get_latest_metric('val')
         test_latest_metric = recorder.get_latest_metric('test')
 
+        print("Epoch: ", step)
         print("Train: ", train_latest_metric)
         print("Val: ", val_latest_metric)
         print("Test", test_latest_metric)
@@ -165,11 +167,7 @@ def eval_model(model, dataloader, metrics, **kwargs):
 
 
 def acc_metric(predictions, labels):
-    if isinstance(predictions, Tensor):
-        predictions = predictions.cpu().numpy()
-    if isinstance(labels, Tensor):
-        labels = labels.cpu().numpy()
-    acc = (np.argmax(predictions, axis=1) == labels).sum() / labels.shape[0]
+    acc = (predictions == labels).all(dim=1).to(torch.float32).sum() / labels.shape[0]
     return acc
 
 def roc_auc_metric(predictions, labels):
@@ -240,7 +238,6 @@ def loss_metric(predictions, labels):
         for i in range(len(labels)):
             loss += torch.nn.functional.cross_entropy(predictions[i].to(torch.float32),
                                                       labels[i].to(torch.float32)).item()
-            print(predictions[i].to(torch.float32), labels[i].to(torch.float32))
     return loss / len(labels)
 
 
@@ -261,7 +258,7 @@ def bleu_metric(predictions, labels):
             labels = labels.cpu().tolist()
         bleu = 0
         for i in range(len(labels)):
-            bleu += sentence_bleu([labels[i]], predictions[i], weights=(1, 1, 1, 0))
+            bleu += sentence_bleu([labels[i]], predictions[i], weights=(1/3, 1/3, 1/3, 0))
         bleu /= len(labels)
         return bleu
 

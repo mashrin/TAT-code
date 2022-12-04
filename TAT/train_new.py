@@ -10,7 +10,7 @@ import scipy.stats
 from nltk.translate.bleu_score import sentence_bleu
 from torch import Tensor
 from tqdm import tqdm
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from pathlib import Path
 from sklearn.metrics import roc_auc_score, f1_score
 # from xww.utils.tensorboard import TensorboardSummarizer
@@ -20,6 +20,7 @@ import math
 from itertools import combinations, permutations
 
 criterion = torch.nn.functional.cross_entropy
+KendallTau = namedtuple('kendall_tau', ['correlation', 'pvalue'])
 
 def get_device(gpu_index):
     if gpu_index >= 0:
@@ -60,7 +61,8 @@ def train_model(model, dataloaders, args, logger):
                        perm_loss=args.perm_loss, set_indice_length=args.set_indice_length)
 
         train_metrics_results = eval_model(model, train_loader, metrics, desc='train_eval', start_step=step*len(train_loader))
-        val_metrics_results = eval_model(model, val_loader, metrics, desc='val_eval', start_step=step*len(val_loader))
+        val_metrics_results = eval_model(model, val_loader, metrics, desc='val_eval', start_step=step*len(val_loader),
+                                         recorder=recorder, step=step)
         test_metrics_results = eval_model(model, test_loader, metrics, desc='test_eval',
                                           start_step=step*len(test_loader), recorder=recorder, step=step)
        
@@ -161,9 +163,10 @@ def eval_model(model, dataloader, metrics, **kwargs):
 
     predictions = torch.cat(predictions, dim=0)
     labels = torch.cat(labels, dim=0)
+    name = desc.split('_')[0]
     if recorder is not None:
-        torch.save(predictions, path / f'predictions_{epoch}.pt')
-        torch.save(labels, path / f'labels_{epoch}.pt')
+        torch.save(predictions, path / f'{name}_predictions_{epoch}.pt')
+        torch.save(labels, path / f'{name}_labels_{epoch}.pt')
     metrics_results = compute_metric(predictions, labels, metrics)
     return metrics_results
 
@@ -219,9 +222,19 @@ def kendall_tau_metric(predictions, labels):
         predictions = predictions.cpu().numpy()
     if isinstance(labels, Tensor):
         labels = labels.cpu().numpy()
+    l = fact_to_num(predictions.shape[1])
     predictions = np.argmax(predictions, axis=1)
-    tau = scipy.stats.kendalltau(predictions, labels)
-    return tau
+    tau = 0
+    pval = 0
+    for i in range(len(labels)):
+        kendall_tau = scipy.stats.kendalltau(label_to_order(predictions[i], l), label_to_order(labels[i], l))
+        pred_tau = kendall_tau.correlation if not np.isnan(kendall_tau.correlation) else 0.0
+        pred_pval = kendall_tau.pvalue if not np.isnan(kendall_tau.pvalue) else 0.0
+        tau += pred_tau
+        pval += pred_pval
+    tau /= len(labels)
+    pval /= len(labels)
+    return KendallTau(tau, pval)
 
 def loss_metric(predictions, labels):
     """ cross entropy loss """
@@ -430,7 +443,7 @@ def optimize_model(model, target_model, dataloader, optimizer, logger, summary_w
                 raise
     # update target model
     target_model.load_state_dict(model.state_dict())
-    logger.info('Passsed batches: {}/{}'.format(passed_batches, len(dataloader)))
+    logger.info('Passed batches: {}/{}'.format(passed_batches, len(dataloader)))
 
 
 class Recorder(object):

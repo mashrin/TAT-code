@@ -143,7 +143,8 @@ def get_model(args, logger):
         model = TATEncoderDecoder(model_name=args.model, time_encoder_type=args.time_encoder_type, time_encoder_maxt=args.time_encoder_maxt,
                          time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension, time_encoder_discrete=args.time_encoder_discrete,
                          layers=args.layers, in_features=args.in_features, hidden_features=args.hidden_features, out_features=args.out_features,
-                         dropout=args.dropout, negative_slope=args.negative_slope, set_indice_length=args.set_indice_length, attention=args.use_attention,)
+                         dropout=args.dropout, negative_slope=args.negative_slope, set_indice_length=args.set_indice_length, attention=args.use_attention,
+                         pooling_method=args.pooling_method, use_lookup=args.use_lookup)
     else:
         raise NotImplementedError
     return model
@@ -453,35 +454,60 @@ class TATConv(MessagePassing):
 
 
 class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, lookup_table=None):
         super(DecoderRNN, self).__init__()
+        self.lookup_table = lookup_table
         self.hidden_size = hidden_size
-        self.gru = nn.GRU(1, hidden_size, 1, batch_first=True)
+        self.gru = nn.GRU(input_size, hidden_size, 1, batch_first=True)
         self.out = nn.Linear(hidden_size, output_size)
 
     def forward(self, input, hidden):
+        if self.lookup_table is not None:
+            input = torch.index_select(self.lookup_table, 0,
+                                       input.squeeze().to(torch.int32)).unsqueeze(1).to(torch.float32)
         output, hidden = self.gru(input, hidden)
         output = self.out(output)
         return output, hidden
+
+
+def lookup_table_n(n=3):
+    if n == 3:
+        return np.array([[0, 0, 0],
+                         [1, 1, 0],
+                         [1, 0, 1],
+                         [0, 1, 1]])
+    if n == 4:
+        return np.array([[0, 0, 0, 0],
+                         [1, 1, 0, 0],
+                         [1, 0, 1, 0],
+                         [1, 0, 0, 1],
+                         [0, 1, 1, 0],
+                         [0, 1, 0, 1],
+                         [0, 0, 1, 1],
+                         ])
 
 
 class TATEncoderDecoder(TATModel):
 
     def __init__(self, model_name: str, time_encoder_type: str, time_encoder_maxt: float, time_encoder_rows: int, time_encoder_dimension: int,
                  time_encoder_discrete: str, layers: int, in_features: int, hidden_features: int, out_features: int,
-                 dropout: float = 0.0, negative_slope: float = 0.2, set_indice_length: int = 3, attention: bool = True ):
+                 dropout: float = 0.0, negative_slope: float = 0.2, set_indice_length: int = 3, attention: bool = True,
+                 pooling_method: str = 'concat', use_lookup: bool = False):
         super(TATEncoderDecoder, self).__init__(model_name='TAT', time_encoder_type=time_encoder_type, time_encoder_maxt=time_encoder_maxt,
                          time_encoder_rows=time_encoder_rows, time_encoder_dimension=time_encoder_dimension, time_encoder_discrete=time_encoder_discrete,
                          layers=layers, in_features=in_features, hidden_features=hidden_features, out_features=out_features,
                          dropout=dropout, negative_slope=negative_slope, set_indice_length=set_indice_length, attention=attention,)
         self.set_indice_length = set_indice_length
-        self.pooling_method = 'concat'
+        self.pooling_method = pooling_method
+        self.use_lookup = use_lookup
+        decoder_input_size = 1 if not self.use_lookup else set_indice_length
+        self.lookup_table = torch.tensor(lookup_table_n(self.set_indice_length)) if self.use_lookup else None
         l = int(self.set_indice_length * (self.set_indice_length - 1) / 2)
         if self.pooling_method == 'concat':
             self.decoder_hidden_size = hidden_features * set_indice_length
         if self.pooling_method == 'mean':
             self.decoder_hidden_size = hidden_features
-        self.decoder = DecoderRNN(self.decoder_hidden_size, l+1)
+        self.decoder = DecoderRNN(decoder_input_size, self.decoder_hidden_size, l + 1, self.lookup_table)
 
     def pool(self, x):
         if self.pooling_method == 'mean':

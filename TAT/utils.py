@@ -53,6 +53,12 @@ def expand_edge_index_and_timestamps(edge_index: List, timestamps: List, set_ind
     return edge_index_expand, timestamps_expand
 
 
+def label_to_order(label, l):
+    for i, p in enumerate(permutations(range(1, l+1))):
+        if i == label:
+            return list(p)
+
+
 class GraphDataset(Dataset):
     def __init__(self, root_dir, filelist, sp_feature_type='sp', model='TAT'):
         self.root_dir = Path(root_dir)
@@ -71,7 +77,9 @@ class GraphDataset(Dataset):
         set_indice = data_obj['set_indice']
         sp_features = data_obj['sp_features']
         label = data_obj['label']
-        timestamps = data_obj['timestamp'] 
+        timestamps = data_obj['timestamp']
+        l = len(set_indice)
+        label_seq = label_to_order(label, int(l * (l-1) / 2))
 
         # features
         node_attribute_matrix = np.zeros((sp_features.shape[0], len(set_indice)))
@@ -96,7 +104,8 @@ class GraphDataset(Dataset):
         timestamps_expanded = torch.FloatTensor(timestamps_expanded)
         set_indice = torch.LongTensor(set_indice).unsqueeze(0)  
         y = torch.LongTensor([label])
-        sample_G = Data(x=node_attribute_matrix, edge_index=edge_index_expanded, y=y, set_indice=set_indice, timestamps=timestamps_expanded)
+        y_seq = torch.LongTensor(label_seq).unsqueeze(0)
+        sample_G = Data(x=node_attribute_matrix, edge_index=edge_index_expanded, y=y, set_indice=set_indice, timestamps=timestamps_expanded, y_seq=y_seq)
         return sample_G
 
     def show_statistics(self, name):
@@ -607,9 +616,9 @@ def load_dataloaders(G, args): # TODO: move to preprocessing
 
 def make_dataloaders(train_set, val_set, test_set, batch_size):
     # num_workers = 1
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]))
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]))
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]))
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
     return train_loader, val_loader, test_loader
 
 

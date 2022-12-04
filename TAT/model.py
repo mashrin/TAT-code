@@ -139,6 +139,11 @@ def get_model(args, logger):
                          time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension, time_encoder_discrete=args.time_encoder_discrete,
                          layers=args.layers, in_features=args.in_features, hidden_features=args.hidden_features, out_features=args.out_features,
                          dropout=args.dropout, negative_slope=args.negative_slope, set_indice_length=args.set_indice_length, attention=args.use_attention,)
+    elif args.model in ['TAT_seq_pred']:
+        model = TATEncoderDecoder(model_name=args.model, time_encoder_type=args.time_encoder_type, time_encoder_maxt=args.time_encoder_maxt,
+                         time_encoder_rows=args.time_encoder_rows, time_encoder_dimension=args.time_encoder_dimension, time_encoder_discrete=args.time_encoder_discrete,
+                         layers=args.layers, in_features=args.in_features, hidden_features=args.hidden_features, out_features=args.out_features,
+                         dropout=args.dropout, negative_slope=args.negative_slope, set_indice_length=args.set_indice_length, attention=args.use_attention,)
     else:
         raise NotImplementedError
     return model
@@ -445,3 +450,61 @@ class TATConv(MessagePassing):
         return '{}({}, {}, heads={})'.format(self.__class__.__name__,
                                              self.in_channels,
                                              self.out_channels, self.heads)
+
+
+class DecoderRNN(nn.Module):
+    def __init__(self, hidden_size, output_size):
+        super(DecoderRNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.gru = nn.GRU(1, hidden_size, 1, batch_first=True)
+        self.out = nn.Linear(hidden_size, output_size)
+
+    def forward(self, input, hidden):
+        output, hidden = self.gru(input, hidden)
+        output = self.out(output)
+        return output, hidden
+
+
+class TATEncoderDecoder(TATModel):
+
+    def __init__(self, model_name: str, time_encoder_type: str, time_encoder_maxt: float, time_encoder_rows: int, time_encoder_dimension: int,
+                 time_encoder_discrete: str, layers: int, in_features: int, hidden_features: int, out_features: int,
+                 dropout: float = 0.0, negative_slope: float = 0.2, set_indice_length: int = 3, attention: bool = True ):
+        super(TATEncoderDecoder, self).__init__(model_name='TAT', time_encoder_type=time_encoder_type, time_encoder_maxt=time_encoder_maxt,
+                         time_encoder_rows=time_encoder_rows, time_encoder_dimension=time_encoder_dimension, time_encoder_discrete=time_encoder_discrete,
+                         layers=layers, in_features=in_features, hidden_features=hidden_features, out_features=out_features,
+                         dropout=dropout, negative_slope=negative_slope, set_indice_length=set_indice_length, attention=attention,)
+        self.set_indice_length = set_indice_length
+        self.pooling_method = 'concat'
+        l = int(self.set_indice_length * (self.set_indice_length - 1) / 2)
+        if self.pooling_method == 'concat':
+            self.decoder_hidden_size = hidden_features * set_indice_length
+        if self.pooling_method == 'mean':
+            self.decoder_hidden_size = hidden_features
+        self.decoder = DecoderRNN(self.decoder_hidden_size, l+1)
+
+    def pool(self, x):
+        if self.pooling_method == 'mean':
+            x = x.mean(dim=1).squeeze()
+        elif self.pooling_method == 'concat':
+            x = x.reshape((x.shape[0], -1))
+        else:
+            raise NotImplementedError
+        return x
+
+    def forward(self, batch):
+        x = batch.x
+        edge_index = batch.edge_index
+        timestamps = batch.timestamps
+
+        # preprocessing edge_index and timestamps
+        assert edge_index.shape[1] == timestamps.shape[0], 'length of edge_index must match length of timestamps'
+
+        for layer in self.layers:
+            x = layer(x=x, edge_index=edge_index, timestamps=timestamps)
+            x = self.act(x)
+            x = self.dropout(x)
+
+        x = self.get_mini_batch_embedings(x, batch)
+        merged_x = self.pool(x).unsqueeze(0)  # e.g., [63, 3, 100]
+        return merged_x

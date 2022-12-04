@@ -5,6 +5,7 @@ import torch
 import os
 import time
 import warnings
+import math
 warnings.filterwarnings("ignore", message=r"Passing", category=FutureWarning)
 
 from . import log
@@ -106,7 +107,9 @@ def main():
     if args.in_features != in_dim:
         logger.info("assiged feature dim is not comparable with data dim, force updated {}.".format(in_dim))
         args.in_features = in_dim
-    
+
+    args.out_features = math.factorial(args.set_indice_length * (args.set_indice_length - 1) / 2)
+
     mod = get_model(args, logger)
 
     results = train_model(mod, dataloaders, args, logger)

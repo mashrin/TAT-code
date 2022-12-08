@@ -56,6 +56,7 @@ def parse_args():
     parser.add_argument('--use_attention', type=str2bool, default=True, help='use attention or not in TAT model')
     parser.add_argument('--pooling_method', type=str, default='concat',  choices=['concat', 'mean'], help='pooling method at the end of encoder')
     parser.add_argument('--use_lookup', type=str2bool, default=False, help='use lookup table in decoder')
+    parser.add_argument('--prevent_repeat', type=str2bool, default=False, help='prevent repetition in generated tokens')
     
     parser.add_argument('--epoch', type=int, default=50, help='training epochs')
     parser.add_argument('--batch_size', type=int, default=8, help='mini batch size')

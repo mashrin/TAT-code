@@ -270,7 +270,7 @@ def bleu_metric(predictions, labels):
         for i in range(len(labels)):
             reference = [label_to_order(labels[i], l)]
             candidate = label_to_order(predictions[i], l)
-            bleu += sentence_bleu(reference, candidate, weights=(1, 1, 1, 0))
+            bleu += sentence_bleu(reference, candidate, weights=(1/3, 1/3, 1/3, 0))
         bleu /= len(labels)
         return bleu
 

@@ -617,8 +617,8 @@ def load_dataloaders(G, args): # TODO: move to preprocessing
 def make_dataloaders(train_set, val_set, test_set, batch_size):
     # num_workers = 1
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, pin_memory=True, collate_fn=Collater(follow_batch=[], exclude_keys=[]), drop_last=True)
     return train_loader, val_loader, test_loader
 
 
@@ -693,4 +693,25 @@ def timing_sort(G):
     return sorted_edges, rank_list
 
 
+def lookup_table_n(n=3, return_tensor=False):
+    if n == 3:
+        lt = np.array([[0, 0, 0],
+                         [1, 1, 0],
+                         [1, 0, 1],
+                         [0, 1, 1]])
 
+    elif n == 4:
+        lt = np.array([[0, 0, 0, 0],
+                         [1, 1, 0, 0],
+                         [1, 0, 1, 0],
+                         [1, 0, 0, 1],
+                         [0, 1, 1, 0],
+                         [0, 1, 0, 1],
+                         [0, 0, 1, 1],
+                         ])
+    else:
+        raise NotImplementedError
+
+    if return_tensor:
+        return torch.tensor(lt)
+    return lt

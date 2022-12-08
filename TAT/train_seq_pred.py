@@ -66,13 +66,13 @@ def train_model(model, dataloaders, args, logger):
         optimize_model(model, target_model, train_loader, optimizer, logger, summary_writer, step,
                        perm_loss=args.perm_loss, set_indice_length=args.set_indice_length)
         train_metrics_results = eval_model(model, train_loader, metrics, desc='train_eval', start_step=step*len(train_loader),
-                                           set_indice_length=args.set_indice_length)
+                                           set_indice_length=args.set_indice_length, prevent_repeat=args.prevent_repeat)
         val_metrics_results = eval_model(model, val_loader, metrics, desc='val_eval', start_step=step*len(val_loader),
                                          recorder=recorder, step=step,
-                                         set_indice_length=args.set_indice_length)
+                                         set_indice_length=args.set_indice_length, prevent_repeat=args.prevent_repeat)
         test_metrics_results = eval_model(model, test_loader, metrics, desc='test_eval',
                                           start_step=step*len(test_loader), recorder=recorder, step=step,
-                                          set_indice_length=args.set_indice_length)
+                                          set_indice_length=args.set_indice_length, prevent_repeat=args.prevent_repeat)
 
         recorder.append_full_metrics(train_metrics_results, 'train')
         recorder.append_full_metrics(val_metrics_results, 'val')
@@ -132,19 +132,29 @@ def eval_model(model, dataloader, metrics, **kwargs):
     desc = kwargs.get('desc', 'desc')
     recorder = kwargs.get('recorder', None)
     epoch = str(kwargs.get('step', ''))
-    l = int(kwargs["set_indice_length"] * (kwargs["set_indice_length"] - 1) / 2)
+    l = int((kwargs["set_indice_length"] * (kwargs["set_indice_length"] - 1)) / 2)
     if recorder is not None:
         path = recorder.checkpoint_dir / recorder.time_str
+    prevent_repeat = kwargs["prevent_repeat"]
 
     with torch.no_grad():
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader), desc=desc):
             try:
                 batch = batch.to(device)
-                encoding = model(batch).reshape(1, len(batch), -1)  # .repeat(2, 1, 1)
+                encoding = model(batch).reshape(1, len(batch), -1)
                 decoder_input = torch.zeros(len(batch), dtype=torch.float32).reshape((-1, 1, 1))
                 outputs = []
                 for di in range(l):
                     decoder_output, decoder_hidden = model.decoder(decoder_input, encoding)
+                    if prevent_repeat:
+                        if len(outputs) > 0:
+                            current_outputs = torch.cat(outputs, dim=2)
+                            current_outputs = torch.cat([torch.zeros(len(batch), dtype=torch.int64).reshape((-1, 1, 1)),
+                                                         current_outputs],
+                                                        dim=2)
+                        else:
+                            current_outputs = torch.zeros(len(batch), dtype=torch.int64).reshape((-1, 1, 1))
+                        decoder_output.scatter_(2, current_outputs, -float("inf"))
                     topv, topi = decoder_output.topk(1, dim=2)
                     decoder_input = topi.detach().to(torch.float32)
                     outputs.append(topi)
@@ -168,7 +178,7 @@ def eval_model(model, dataloader, metrics, **kwargs):
 
 def acc_metric(predictions, labels):
     acc = (predictions == labels).all(dim=1).to(torch.float32).sum() / labels.shape[0]
-    return acc
+    return acc.item()
 
 def roc_auc_metric(predictions, labels):
     if isinstance(predictions, Tensor):
@@ -202,7 +212,7 @@ def ranked_acc_metric(predictions, labels, rank=2):
         predictions = predictions.cpu().numpy()
     if isinstance(labels, Tensor):
         labels = labels.cpu().numpy()
-    class_rank = np.argsort( -1*predictions, axis=-1)
+    class_rank = np.argsort(-1*predictions, axis=-1)
     labels = np.repeat(labels.reshape((-1, 1)), rank, axis=1)
     correct_predictions = np.max(class_rank[:, :rank] == labels, axis=1).flatten()
     acc = correct_predictions.sum()/labels.shape[0]
@@ -402,11 +412,10 @@ def optimize_model(model, target_model, dataloader, optimizer, logger, summary_w
     for i, batch in tqdm(enumerate(dataloader), total=len(dataloader), desc='train'):
         try:
             batch = batch.to(device)
-            batch_copy = copy.deepcopy(batch)
             model = model.to(device)
             label_seq = batch.y_seq
-            encoding = model(batch).reshape(1, len(batch), -1)  #.repeat(2, 1, 1)
-            l = int(kwargs["set_indice_length"] * (kwargs["set_indice_length"] - 1) / 2)
+            encoding = model(batch).reshape(1, len(batch), -1)
+            l = int((kwargs["set_indice_length"] * (kwargs["set_indice_length"] - 1)) / 2)
 
             decoder_input = torch.zeros(len(batch), dtype=torch.float32).reshape((-1, 1, 1))
 
@@ -416,16 +425,8 @@ def optimize_model(model, target_model, dataloader, optimizer, logger, summary_w
                 loss += criterion(decoder_output.squeeze(), label_seq[:, di])
                 decoder_input = label_seq[:, di].reshape((-1, 1, 1)).to(torch.float32)
 
-            # if epoch >= 10:
-            #     weight = kwargs['perm_loss']
-            #     # ce_loss = criterion(prediction, label, reduction='mean')
-            #     p_loss = permute_optimize(model, prediction, target_model, batch_copy, optimizer,
-            #                               kwargs["set_indice_length"])
-            #     loss = ce_loss + p_loss * weight
-            # else:
-            #     loss = criterion(prediction, label, reduction='mean')
             loss.backward()
-            train_loss.append(loss.item())
+            train_loss.append(loss.item() * len(batch))
 
             if count >= update_batch:
                 optimizer.step()

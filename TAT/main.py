@@ -108,7 +108,7 @@ def main():
         logger.info("assiged feature dim is not comparable with data dim, force updated {}.".format(in_dim))
         args.in_features = in_dim
 
-    args.out_features = math.factorial(args.set_indice_length * (args.set_indice_length - 1) / 2)
+    args.out_features = math.factorial(int(args.set_indice_length * (args.set_indice_length - 1) / 2))
 
     mod = get_model(args, logger)
 

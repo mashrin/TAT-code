@@ -8,6 +8,7 @@ import os
 import scipy
 import scipy.stats
 from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.meteor_score import meteor_score
 from torch import Tensor
 from tqdm import tqdm
 from collections import OrderedDict, namedtuple
@@ -18,6 +19,9 @@ from .exp_study import rank_acc
 from typing import List, Dict
 import math
 from itertools import combinations, permutations
+from rouge_score import rouge_scorer
+from nltk.translate.chrf_score import sentence_chrf
+from nltk.translate.ribes_score import sentence_ribes
 
 criterion = torch.nn.functional.cross_entropy
 KendallTau = namedtuple('kendall_tau', ['correlation', 'pvalue'])
@@ -236,6 +240,24 @@ def kendall_tau_metric(predictions, labels):
     pval /= len(labels)
     return KendallTau(tau, pval)
 
+def pearson_metric(predictions, labels):
+    if isinstance(predictions, Tensor):
+        predictions = predictions.cpu().numpy()
+    if isinstance(labels, Tensor):
+        labels = labels.cpu().numpy()
+    predictions = np.argmax(predictions, axis=1)
+    pearson = scipy.stats.pearsonr(predictions, labels)
+    return pearson
+
+def spearman_metric(predictions, labels):
+    if isinstance(predictions, Tensor):
+        predictions = predictions.cpu().numpy()
+    if isinstance(labels, Tensor):
+        labels = labels.cpu().numpy()
+    predictions = np.argmax(predictions, axis=1)
+    spearman = scipy.stats.spearmanr(predictions, labels)
+    return spearman
+
 def loss_metric(predictions, labels):
     """ cross entropy loss """
     if not isinstance(predictions, Tensor):
@@ -274,7 +296,143 @@ def bleu_metric(predictions, labels):
         bleu /= len(labels)
         return bleu
 
-    
+def gleu_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        gleu = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            gleu += sentence_gleu(reference, candidate, weights=(1, 1, 1, 0))
+        gleu /= len(labels)
+        return gleu
+
+def wer_score(hyp, ref):
+    N = len(hyp)
+    M = len(ref)
+    L = np.zeros((N,M))
+    for i in range(0, N):
+        for j in range(0, M):
+        if min(i,j) == 0:
+            L[i,j] = max(i,j)
+        else:
+            deletion = L[i-1,j] + 1
+            insertion = L[i,j-1] + 1
+            sub = 1 if hyp[i] != ref[j] else 0
+            substitution = L[i-1,j-1] + sub
+            L[i,j] = min(deletion, min(insertion, substitution))
+    return int(L[N-1, M-1])
+
+def wer_score_metric(prediction, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        gleu = 0
+        for i in range(len(labels)):
+            reference = label_to_order(labels[i], l)
+            candidate = label_to_order(predictions[i], l)
+            wer += wer_score(candidate, reference)
+        wer /= len(labels)
+        return wer
+
+def meteor_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        meteor = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            meteor += meteor_score(reference, candidate)
+        meteor /= len(labels)
+        return meteor
+
+def rouge_metric(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        for i in range(len(labels)):
+            reference = label_to_order(labels[i], l)
+            candidate = label_to_order(predictions[i], l)
+            scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
+            rouge_dict = scorer.score(ref1, hyp1)
+            rouge1_precision += rouge_dict['rouge1'][0]
+            rouge1_recall += rouge_dict['rouge1'][1]
+            reuge1_fmeasure += rouge_dict['rouge1'][2]
+            rouge2_precision += rouge_dict['rouge2'][0]
+            rouge2_recall += rouge_dict['rouge2'][1]
+            reuge2_fmeasure += rouge_dict['rouge2'][2]
+            rougeL_precision += rouge_dict['rougeL'][0]
+            rougeL_recall += rouge_dict['rougeL'][1]
+            reugeL_fmeasure += rouge_dict['rougeL'][2]
+        rouge1_precision /= len(labels)
+        rouge1_recall /= len(labels)
+        rouge1_fmeasure /= len(labels)
+        rouge2_precision /= len(labels)
+        rouge2_recall /= len(labels)
+        rouge2_fmeasure /= len(labels)
+        rougeL_precision /= len(labels)
+        rougeL_recall /= len(labels)
+        rougeL_fmeasure /= len(labels)
+        return rouge1_precision, rouge1_recall, rouge1_fmeasure, rouge2_precision, rouge2_recall, rouge2_fmeasure, \
+        rougeL_precision, rougeL_recall, rougeL_fmeasure
+
+def chrf_score(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        chrf = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            chrf += sentence_chrf(reference, candidate)
+        chrf /= len(labels)
+        return chrf
+
+def ribes_score(predictions, labels):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if isinstance(predictions, Tensor):
+            predictions = predictions.cpu().numpy()
+        if isinstance(labels, Tensor):
+            labels = labels.cpu().tolist()
+        l = fact_to_num(predictions.shape[1])
+        predictions = np.argmax(predictions, axis=1).tolist()
+        ribes = 0
+        for i in range(len(labels)):
+            reference = [label_to_order(labels[i], l)]
+            candidate = label_to_order(predictions[i], l)
+            ribes += sentence_ribes(reference, candidate)
+        ribes /= len(labels)
+        return ribes
+
 def compute_metric(predictions, labels, metrics):
     metrics_results = {}
     for key, f in metrics.items():
